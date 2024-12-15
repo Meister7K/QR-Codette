@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Universal QR Code Generator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .input-section {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .preview-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 20px;
+            gap: 20px;
+        }
+        #file-input, #input-type {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        #qr-image, #source-preview {
+            max-width: 300px;
+            max-height: 300px;
+            border: 1px solid #ddd;
+            object-fit: contain;
+        }
+        .btn {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        .btn:hover {
+            background-color: #45a049;
+        }
+        .btn:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #error-message {
+            color: red;
+            margin-top: 10px;
+        }
+        .metadata-display {
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-top: 10px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Universal QR Code Generator</h1>
+        
+        <div class="input-section">
+            <select id="input-type">
+                <option value="text">Text Input</option>
+                <option value="file">File Input</option>
+                <option value="url">URL Input</option>
+            </select>
+
+            <div id="text-input-wrapper">
+                <textarea 
+                    id="text-input" 
+                    placeholder="Enter text/content to generate QR code"
+                    rows="4"
+                ></textarea>
+            </div>
+
+            <div id="file-input-wrapper" style="display:none;">
+                <input type="file" id="file-input" accept="*/*">
+            </div>
+
+            <div id="url-input-wrapper" style="display:none;">
+                <input 
+                    type="url" 
+                    id="url-input" 
+                    placeholder="Enter a URL"
+                >
+            </div>
+
+            <button id="generate-btn" class="btn">Generate QR Code</button>
+            <button id="download-btn" class="btn" disabled>Download QR Code</button>
+        </div>
+
+        <div id="error-message"></div>
+
+        <div class="preview-container">
+            <img id="source-preview" src="" alt="Source Preview" style="display:none;">
+            <img id="qr-image" src="" alt="QR Code" style="display:none;">
+        </div>
+
+        <div id="metadata-container" class="metadata-display" style="display:none;">
+            <h3>File Metadata:</h3>
+            <p id="filename-display"></p>
+            <p id="filesize-display"></p>
+            <p id="filetype-display"></p>
+            <p id="file-hash-display"></p>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+    <script>
+       
+        const inputTypeSelect = document.getElementById('input-type');
+        const textInputWrapper = document.getElementById('text-input-wrapper');
+        const fileInputWrapper = document.getElementById('file-input-wrapper');
+        const urlInputWrapper = document.getElementById('url-input-wrapper');
+        const textInput = document.getElementById('text-input');
+        const fileInput = document.getElementById('file-input');
+        const urlInput = document.getElementById('url-input');
+        const generateBtn = document.getElementById('generate-btn');
+        const downloadBtn = document.getElementById('download-btn');
+        const qrImage = document.getElementById('qr-image');
+        const sourcePreview = document.getElementById('source-preview');
+        const errorMessage = document.getElementById('error-message');
+        const metadataContainer = document.getElementById('metadata-container');
+        const filenameDisplay = document.getElementById('filename-display');
+        const filesizeDisplay = document.getElementById('filesize-display');
+        const filetypeDisplay = document.getElementById('filetype-display');
+        const fileHashDisplay = document.getElementById('file-hash-display');
+
+        
+        async function sha256(message) {
+            const msgBuffer = new TextEncoder().encode(message);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        
+        function resetInputs() {
+            textInput.value = '';
+            fileInput.value = '';
+            urlInput.value = '';
+            qrImage.src = '';
+            sourcePreview.src = '';
+            qrImage.style.display = 'none';
+            sourcePreview.style.display = 'none';
+            metadataContainer.style.display = 'none';
+            downloadBtn.disabled = true;
+            errorMessage.textContent = '';
+        }
+
+        
+        inputTypeSelect.addEventListener('change', () => {
+            const inputType = inputTypeSelect.value;
+            
+            
+            textInputWrapper.style.display = 'none';
+            fileInputWrapper.style.display = 'none';
+            urlInputWrapper.style.display = 'none';
+
+            
+            switch(inputType) {
+                case 'text':
+                    textInputWrapper.style.display = 'block';
+                    break;
+                case 'file':
+                    fileInputWrapper.style.display = 'block';
+                    break;
+                case 'url':
+                    urlInputWrapper.style.display = 'block';
+                    break;
+            }
+
+            resetInputs();
+        });
+
+       
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                errorMessage.textContent = '';
+                
+               
+                if (file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = async (event) => {
+                        sourcePreview.src = event.target.result;
+                        sourcePreview.style.display = 'block';
+                        
+                      
+                        const fileHash = await sha256(event.target.result);
+                        
+                        
+                        filenameDisplay.textContent = `Filename: ${file.name}`;
+                        filesizeDisplay.textContent = `Size: ${(file.size / 1024).toFixed(2)} KB`;
+                        filetypeDisplay.textContent = `Type: ${file.type}`;
+                        fileHashDisplay.textContent = `File Hash: ${fileHash.substring(0, 20)}...`;
+                        metadataContainer.style.display = 'block';
+                        
+                      
+                        textInput.value = JSON.stringify({
+                            filename: file.name,
+                            size: file.size,
+                            type: file.type,
+                            hash: fileHash
+                        });
+                    };
+                    reader.readAsDataURL(file);
+                } 
+               
+                else if (file.type.startsWith('text/')) {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        textInput.value = event.target.result;
+                    };
+                    reader.readAsText(file);
+                }
+               
+                else {
+                    const reader = new FileReader();
+                    reader.onload = async (event) => {
+                       
+                        const fileHash = await sha256(event.target.result);
+                        
+                       
+                        filenameDisplay.textContent = `Filename: ${file.name}`;
+                        filesizeDisplay.textContent = `Size: ${(file.size / 1024).toFixed(2)} KB`;
+                        filetypeDisplay.textContent = `Type: ${file.type}`;
+                        fileHashDisplay.textContent = `File Hash: ${fileHash.substring(0, 20)}...`;
+                        metadataContainer.style.display = 'block';
+                        
+                        
+                        textInput.value = JSON.stringify({
+                            filename: file.name,
+                            size: file.size,
+                            type: file.type,
+                            hash: fileHash
+                        });
+                    };
+                    reader.readAsDataURL(file);
+                }
+            }
+        });
+
+        
+        generateBtn.addEventListener('click', () => {
+         
+            errorMessage.textContent = '';
+            qrImage.style.display = 'none';
+            
+            let inputValue;
+            const inputType = inputTypeSelect.value;
+
+            switch(inputType) {
+                case 'text':
+                    inputValue = textInput.value.trim();
+                    break;
+                case 'file':
+                    inputValue = textInput.value.trim();
+                    break;
+                case 'url':
+                    inputValue = urlInput.value.trim();
+                    break;
+            }
+
+        
+            if (!inputValue) {
+                errorMessage.textContent = 'Please enter content or select a file.';
+                return;
+            }
+
+            try {
+              
+                const maxLength = 2000;
+                if (inputValue.length > maxLength) {
+                    errorMessage.textContent = `Input truncated to ${maxLength} characters.`;
+                    inputValue = inputValue.substring(0, maxLength);
+                }
+
+             
+                const qr = qrcode(0, 'H');
+                qr.addData(inputValue);
+                qr.make();
+
+              
+                qrImage.src = qr.createDataURL(10);
+                qrImage.style.display = 'block';
+                downloadBtn.disabled = false;
+            } catch (error) {
+                errorMessage.textContent = `Error generating QR code: ${error.message}`;
+                console.error(error);
+            }
+        });
+
+      
+        downloadBtn.addEventListener('click', () => {
+            if (!qrImage.src) {
+                errorMessage.textContent = 'Please generate a QR code first.';
+                return;
+            }
+
+            const link = document.createElement('a');
+            link.download = 'qr_code.png';
+            link.href = qrImage.src;
+            link.click();
+        });
+
+        // Initialize first input type
+        textInputWrapper.style.display = 'block';
+    </script>
+</body>
+</html>
